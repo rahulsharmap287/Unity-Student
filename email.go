@@ -1,31 +1,30 @@
 package main
 
 import (
-	"crypto/tls"
+	"bytes"
+	"encoding/json"
 	"fmt"
-	"net/smtp"
-	"os"
+	"net/http"
 )
 
 func SendOTPEmail(targetEmail string, otp string) {
-	from := os.Getenv("SMTP_EMAIL")
-	pass := os.Getenv("SMTP_PASS")
+	// Brevo API configuration
+	apiKey := "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"
+	url := "https://api.brevo.com/v3/smtp/email"
 
-	if from == "" || pass == "" {
-		fmt.Println("❌ SMTP credentials not set in environment")
-		return
-	}
-
-	// Fix: Port 587 ki jagah 465 (SSL) use kar rahe hain kyunki Render 587 block karta hai
-	smtpHost := "smtp.gmail.com"
-	smtpPort := "465"
-
-	auth := smtp.PlainAuth("", from, pass, smtpHost)
-
-	subject := "Subject: Unity Student - OTP Verification\n"
-	mime := "MIME-version: 1.0;\nContent-Type: text/html; charset=\"UTF-8\";\n\n"
-
-	body := fmt.Sprintf(`
+	// Email payload structure
+	payload := map[string]interface{}{
+		"sender": map[string]string{
+			"name":  "Unity Student",
+			"email": "unitystudent42@gmail.com",
+		},
+		"to": []map[string]string{
+			{
+				"email": targetEmail,
+			},
+		},
+		"subject": "Unity Student - OTP Verification",
+		"htmlContent": fmt.Sprintf(`
         <html>
             <body style="font-family: Arial, sans-serif; color: #333;">
                 <div style="max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px;">
@@ -40,63 +39,39 @@ func SendOTPEmail(targetEmail string, otp string) {
                     <p style="font-size: 12px; color: #888; text-align: center;">Verified by Unity Team</p>
                 </div>
             </body>
-        </html>`, otp)
-
-	msg := []byte(subject + mime + body)
-
-	// SSL Configuration for Port 465
-	tlsconfig := &tls.Config{
-		InsecureSkipVerify: true,
-		ServerName:         smtpHost,
+        </html>`, otp),
 	}
 
-	// Port 465 ke liye direct dial karna padta hai
-	conn, err := tls.Dial("tcp", smtpHost+":"+smtpPort, tlsconfig)
+	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		fmt.Printf("❌ Connection error: %s\n", err)
+		fmt.Printf("❌ JSON error: %s\n", err)
 		return
 	}
-	defer conn.Close()
 
-	c, err := smtp.NewClient(conn, smtpHost)
+	// Create HTTP request
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		fmt.Printf("❌ SMTP Client error: %s\n", err)
-		return
-	}
-	defer c.Quit()
-
-	if err = c.Auth(auth); err != nil {
-		fmt.Printf("❌ Auth error: %s\n", err)
+		fmt.Printf("❌ Request error: %s\n", err)
 		return
 	}
 
-	if err = c.Mail(from); err != nil {
-		fmt.Printf("❌ Mail error: %s\n", err)
-		return
-	}
+	// Set required headers for Brevo
+	req.Header.Set("api-key", apiKey)
+	req.Header.Set("Content-Type", "application/json")
 
-	if err = c.Rcpt(targetEmail); err != nil {
-		fmt.Printf("❌ Rcpt error: %s\n", err)
-		return
-	}
-
-	w, err := c.Data()
+	// Execute request
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("❌ Data error: %s\n", err)
+		fmt.Printf("❌ API Connection error: %s\n", err)
 		return
 	}
+	defer resp.Body.Close()
 
-	_, err = w.Write(msg)
-	if err != nil {
-		fmt.Printf("❌ Write error: %s\n", err)
-		return
+	// Check if email was sent successfully
+	if resp.StatusCode == 201 || resp.StatusCode == 200 {
+		fmt.Printf("✅ OTP sent successfully via Brevo API to %s\n", targetEmail)
+	} else {
+		fmt.Printf("❌ Brevo API failed. Status: %d\n", resp.StatusCode)
 	}
-
-	err = w.Close()
-	if err != nil {
-		fmt.Printf("❌ Close error: %s\n", err)
-		return
-	}
-
-	fmt.Printf("✅ OTP sent successfully to %s\n", targetEmail)
 }
