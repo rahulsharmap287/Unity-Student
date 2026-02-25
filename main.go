@@ -41,6 +41,7 @@ func main() {
 	http.HandleFunc("/get-notifications", GetNotifications)
 	http.HandleFunc("/update-academic", UpdateAcademicHandler)
 	http.HandleFunc("/get-user-thought", GetUserThoughtsHandler)
+	http.HandleFunc("/toggle-mute", ToggleMuteHandler)
 	http.HandleFunc("/login", Login)
 	http.HandleFunc("/ws", ServeWS)
 

@@ -655,3 +655,56 @@ func GetUserThoughtsHandler(w http.ResponseWriter, r *http.Request) {
 	// Ab ye small "text", "username" hi bhejega
 	json.NewEncoder(w).Encode(thoughts)
 }
+
+func ToggleMuteHandler(w http.ResponseWriter, r *http.Request) {
+	// Note: Flutter se hum 'username' bhej rahe hain userId ki jagah
+	myUsername := r.URL.Query().Get("userId")
+	targetUsername := r.URL.Query().Get("targetId")
+
+	if myUsername == "" || targetUsername == "" {
+		http.Error(w, "Missing usernames", http.StatusBadRequest)
+		return
+	}
+
+	// 🕵️ Important: userCollection ka use karein jo pehle se defined hai
+	// isse 'client' variable ka red error khatam ho jayega
+	collection := userCollection
+
+	// 1. Check karein kya targetUsername pehle se mutedUsers list mein hai
+	var user models.User
+	err := collection.FindOne(context.TODO(), bson.M{"username": myUsername}).Decode(&user)
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	isMuted := false
+	for _, u := range user.MutedUsers {
+		if u == targetUsername {
+			isMuted = true
+			break
+		}
+	}
+
+	var update bson.M
+	var message string
+
+	if isMuted {
+		// 2. UNMUTE logic
+		update = bson.M{"$pull": bson.M{"mutedUsers": targetUsername}}
+		message = "✅ User Unmuted"
+	} else {
+		// 3. MUTE logic
+		update = bson.M{"$addToSet": bson.M{"mutedUsers": targetUsername}}
+		message = "✅ User Muted"
+	}
+
+	_, err = collection.UpdateOne(context.TODO(), bson.M{"username": myUsername}, update)
+	if err != nil {
+		http.Error(w, "Database Update Failed", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprintln(w, message)
+}
