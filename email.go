@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 )
 
 func SendOTPEmail(targetEmail string, otp string) {
 	// Brevo API configuration
-	apiKey := "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"
+	apiKey := os.Getenv("BREVO_API_KEY")
 	url := "https://api.brevo.com/v3/smtp/email"
 
 	// Email payload structure
