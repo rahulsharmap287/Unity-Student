@@ -337,11 +337,21 @@ func GetAcceptedFriendsHandler(w http.ResponseWriter, r *http.Request) {
 		// 🕵️ Unread count (Jo humne pehle banaya tha)
 		unreadCount := GetUnreadCount(username, friend)
 
+		// Backend logic
+		isMuted := false
+		for _, m := range me.MutedUsers {
+			if m == friend {
+				isMuted = true
+				break
+			}
+		}
+
 		friendsData = append(friendsData, map[string]interface{}{
 			"username":    friend,
 			"lastMessage": lastMsg.Text,
 			"time":        lastMsg.CreatedAt, // Isse Flutter sort karega
 			"unreadCount": unreadCount,       // Isse green dot dikhega
+			"isMuted":     isMuted,           // 👈 Ye true/false Flutter ko jayega
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -707,4 +717,31 @@ func ToggleMuteHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintln(w, message)
+}
+
+func DeleteChatHandler(w http.ResponseWriter, r *http.Request) {
+	myUsername := r.URL.Query().Get("myUsername")
+	friendUsername := r.URL.Query().Get("friendUsername")
+
+	if myUsername == "" || friendUsername == "" {
+		http.Error(w, "Usernames required", 400)
+		return
+	}
+
+	// 🕵️ Request collection se connection delete karein
+	filter := bson.M{
+		"status": "accepted",
+		"$or": []bson.M{
+			{"sender": myUsername, "receiver": friendUsername},
+			{"sender": friendUsername, "receiver": myUsername},
+		},
+	}
+
+	_, err := requestCollection.DeleteOne(context.TODO(), filter)
+	if err != nil {
+		http.Error(w, "Delete failed", 500)
+		return
+	}
+
+	fmt.Fprintln(w, "✅ Chat deleted")
 }

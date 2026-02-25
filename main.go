@@ -42,6 +42,7 @@ func main() {
 	http.HandleFunc("/update-academic", UpdateAcademicHandler)
 	http.HandleFunc("/get-user-thought", GetUserThoughtsHandler)
 	http.HandleFunc("/toggle-mute", ToggleMuteHandler)
+	http.HandleFunc("/delete-chat", DeleteChatHandler)
 	http.HandleFunc("/login", Login)
 	http.HandleFunc("/ws", ServeWS)
 
