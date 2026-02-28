@@ -1,14 +1,14 @@
 package main
 
 import (
+	"Unity_Student/models"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
 	"time"
-
-	"Unity_Student/models"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
@@ -31,7 +31,8 @@ func broadcastStatus(username string, isOnline bool) {
 	defer mu.Unlock()
 
 	statusMsg := map[string]interface{}{
-		"type":     "status",
+		"type": "status",
+
 		"username": username,
 		"online":   isOnline,
 	}
@@ -91,42 +92,96 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 		log.Printf("❌ User Offline: %s", username)
 	}()
 
+	//for {
+	//	_, msg, err := conn.ReadMessage()
+	//	if err != nil {
+	//		break
+	//	}
+	//
+	//	var message models.Message
+	//	if err := json.Unmarshal(msg, &message); err != nil {
+	//		continue
+	//	}
+	//
+	//	message.From = username
+	//	message.CreatedAt = time.Now()
+	//
+	//	// ✅ MongoDB mein ab ReplyToID aur ReplyText bhi save hoga
+	//	res, _ := messageCollection.InsertOne(context.TODO(), message)
+	//
+	//	// MongoDB ki InsertedID ko message mein wapas daalo taaki samne wala ise delete kar sake
+	//	msgID := res.InsertedID.(primitive.ObjectID).Hex()
+	//
+	//	mu.Lock()
+	//	receiverConn, found := clients[message.To]
+	//	mu.Unlock()
+	//
+	//	if found {
+	//		msgMap := map[string]interface{}{
+	//			"type":      "chat_message",
+	//			"messageId": msgID, // 👈 Message ID bhej rahe hain
+	//			"from":      message.From,
+	//			"text":      message.Text,
+	//			"to":        message.To,
+	//			"replyToId": message.ReplyToID, // 👈 Nayi Field: Reply ID
+	//			"replyText": message.ReplyText, // 👈 Nayi Field: Reply Text
+	//		}
+	//		data, _ := json.Marshal(msgMap)
+	//		receiverConn.WriteMessage(websocket.TextMessage, data)
+	//	}
+	//}
+
 	for {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			break
 		}
 
-		var message models.Message
-		if err := json.Unmarshal(msg, &message); err != nil {
+		// 1. Pehle raw map mein parse karein taaki 'type' check kar sakein
+		var rawData map[string]interface{}
+		if err := json.Unmarshal(msg, &rawData); err != nil {
 			continue
 		}
 
-		message.From = username
-		message.CreatedAt = time.Now()
+		// 2. Sirf tabhi save karein agar ye chat message hai
+		if rawData["type"] == "chat_message" {
+			var message models.Message
 
-		// ✅ MongoDB mein ab ReplyToID aur ReplyText bhi save hoga
-		res, _ := messageCollection.InsertOne(context.TODO(), message)
+			// Map se Message struct mein data bharein
+			message.From = username
+			message.To = fmt.Sprintf("%v", rawData["to"])
+			message.Text = fmt.Sprintf("%v", rawData["text"])
+			message.ReplyToID = fmt.Sprintf("%v", rawData["replyToId"])
+			message.ReplyText = fmt.Sprintf("%v", rawData["replyText"])
+			message.CreatedAt = time.Now()
 
-		// MongoDB ki InsertedID ko message mein wapas daalo taaki samne wala ise delete kar sake
-		msgID := res.InsertedID.(primitive.ObjectID).Hex()
-
-		mu.Lock()
-		receiverConn, found := clients[message.To]
-		mu.Unlock()
-
-		if found {
-			msgMap := map[string]interface{}{
-				"type":      "chat_message",
-				"messageId": msgID, // 👈 Message ID bhej rahe hain
-				"from":      message.From,
-				"text":      message.Text,
-				"to":        message.To,
-				"replyToId": message.ReplyToID, // 👈 Nayi Field: Reply ID
-				"replyText": message.ReplyText, // 👈 Nayi Field: Reply Text
+			// 3. MongoDB mein Save karein
+			res, err := messageCollection.InsertOne(context.TODO(), message)
+			if err != nil {
+				fmt.Println("❌ Mongo Save Error:", err)
+				continue
 			}
-			data, _ := json.Marshal(msgMap)
-			receiverConn.WriteMessage(websocket.TextMessage, data)
+
+			// 4. Message ID nikal kar receiver ko bhejien
+			msgID := res.InsertedID.(primitive.ObjectID).Hex()
+
+			mu.Lock()
+			receiverConn, found := clients[message.To]
+			mu.Unlock()
+
+			if found {
+				msgMap := map[string]interface{}{
+					"type":      "chat_message",
+					"messageId": msgID,
+					"from":      message.From,
+					"text":      message.Text,
+					"to":        message.To,
+					"replyToId": message.ReplyToID,
+					"replyText": message.ReplyText,
+				}
+				data, _ := json.Marshal(msgMap)
+				receiverConn.WriteMessage(websocket.TextMessage, data)
+			}
 		}
 	}
 
