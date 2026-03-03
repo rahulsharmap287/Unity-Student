@@ -38,6 +38,18 @@ func VerifyOTPHandler(w http.ResponseWriter, r *http.Request) {
 		OTP   string `json:"otp"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
+	// 🕵️ Step 1: Google Reviewer ke liye "Smart Bypass"
+	// Ye sirf is ek email aur OTP combination par chalega
+	if body.Email == "unitytest@gmail.com" && body.OTP == "9988917699" {
+		token, _ := GenerateJWT("unitytest")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":   "old_user",
+			"token":    token,
+			"username": "unitytest",
+			"message":  "Test access granted",
+		})
+		return // Yahan se function wapas chala jayega, niche ka Mongo check nahi hoga
+	}
 
 	// 1. OTP Verify karein (Mongo se check)
 	var record bson.M
