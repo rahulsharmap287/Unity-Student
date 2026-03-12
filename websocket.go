@@ -93,23 +93,21 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 		log.Printf("❌ User Offline: %s", username)
 	}()
 
+	// ... upar ka code same rahega ...
+
 	for {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			break
 		}
 
-		// 1. Pehle raw map mein parse karein taaki 'type' check kar sakein
 		var rawData map[string]interface{}
 		if err := json.Unmarshal(msg, &rawData); err != nil {
 			continue
 		}
 
-		// 2. Sirf tabhi save karein agar ye chat message hai
 		if rawData["type"] == "chat_message" {
 			var message models.Message
-
-			// Map se Message struct mein data bharein
 			message.From = username
 			message.To = fmt.Sprintf("%v", rawData["to"])
 			message.Text = fmt.Sprintf("%v", rawData["text"])
@@ -117,14 +115,12 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 			message.ReplyText = fmt.Sprintf("%v", rawData["replyText"])
 			message.CreatedAt = time.Now()
 
-			// 3. MongoDB mein Save karein
 			res, err := messageCollection.InsertOne(context.TODO(), message)
 			if err != nil {
 				fmt.Println("❌ Mongo Save Error:", err)
 				continue
 			}
 
-			// 4. Message ID nikal kar receiver ko bhejien
 			msgID := res.InsertedID.(primitive.ObjectID).Hex()
 
 			mu.Lock()
@@ -144,22 +140,23 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 				data, _ := json.Marshal(msgMap)
 				receiverConn.WriteMessage(websocket.TextMessage, data)
 			} else {
-				// 🔴 Receiver Offline hai: Firebase Push Notification bhejo
-				go func(receiverName string, senderName string, msgText string) {
+				// 🔴 FIX: Paramters ko explicitly pass karein taaki data loss na ho
+				go func(targetUser string, senderUser string, textBody string) {
 					var receiver models.User
-					// Database se receiver ka FCM Token nikalen
-					err := userCollection.FindOne(context.TODO(), bson.M{"username": receiverName}).Decode(&receiver)
+					// Database se receiver ka token nikalein
+					err := userCollection.FindOne(context.TODO(), bson.M{"username": targetUser}).Decode(&receiver)
 
 					if err == nil && receiver.FCMToken != "" {
-						title := fmt.Sprintf("New message from %s", senderName)
-						// Aapka helper function call karein
-						TriggerPushNotification(receiver.FCMToken, title, msgText, message.From)
+						title := fmt.Sprintf("New message from %s", senderUser)
+						// ✅ Trigger helper function call
+						TriggerPushNotification(receiver.FCMToken, title, textBody, senderUser)
+					} else {
+						log.Printf("⚠️ Notification not sent: User %s has no token or DB error: %v", targetUser, err)
 					}
-				}(message.To, message.From, message.Text)
+				}(message.To, message.From, message.Text) // 👈 Parameters yahan se supply honge
 			}
 		}
 	}
-
 }
 
 func NotifyDeleteToUser(toUser string, msgID string) {
