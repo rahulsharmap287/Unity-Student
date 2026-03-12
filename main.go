@@ -45,7 +45,6 @@ func main() {
 	http.HandleFunc("/delete-chat", DeleteChatHandler)
 	http.HandleFunc("/send-notification", SendNotification)
 	http.HandleFunc("/update-fcm-token", UpdateFCMToken)
-	http.HandleFunc("/send-notification", SendNotification)
 	http.HandleFunc("/login", Login)
 	http.HandleFunc("/ws", ServeWS)
 
