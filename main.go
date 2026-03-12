@@ -30,7 +30,7 @@ func main() {
 	http.HandleFunc("/search-users", SearchUsersHandler)
 	http.HandleFunc("/markasread", MarkAsReadHandler)
 	http.HandleFunc("/update-profile-pic", UpdateProfilePicHandler)
-	http.HandleFunc("/block-user", BlockUserHandler) // Pehle "/blockeduser" tha
+	http.HandleFunc("/block-user", BlockUserHandler)
 	http.HandleFunc("/unblock-user", UnblockUserHandler)
 	http.HandleFunc("/get-my-profile", GetMyProfileHandler)
 	http.HandleFunc("/delete-message", DeleteMessageHandler)
@@ -43,6 +43,9 @@ func main() {
 	http.HandleFunc("/get-user-thought", GetUserThoughtsHandler)
 	http.HandleFunc("/toggle-mute", ToggleMuteHandler)
 	http.HandleFunc("/delete-chat", DeleteChatHandler)
+	http.HandleFunc("/send-notification", SendNotification)
+	http.HandleFunc("/update-fcm-token", UpdateFCMToken)
+	http.HandleFunc("/send-notification", SendNotification)
 	http.HandleFunc("/login", Login)
 	http.HandleFunc("/ws", ServeWS)
 

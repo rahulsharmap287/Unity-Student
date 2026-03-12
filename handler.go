@@ -5,13 +5,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"time"
 
+	firebase "firebase.google.com/go/v4"
+	"firebase.google.com/go/v4/messaging"
 	"github.com/gorilla/websocket"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"google.golang.org/api/option"
 )
 
 // 1. Send OTP
@@ -40,7 +45,7 @@ func VerifyOTPHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&body)
 	// 🕵️ Step 1: Google Reviewer ke liye "Smart Bypass"
 	// Ye sirf is ek email aur OTP combination par chalega
-	if body.Email == "unitytest@gmail.com" && body.OTP == "9988917699" {
+	if body.Email == "unitytest@gmail.com" && body.OTP == "123456" {
 		token, _ := GenerateJWT("unitytest")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":   "old_user",
@@ -756,4 +761,133 @@ func DeleteChatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Fprintln(w, "✅ Chat deleted")
+}
+
+func SendNotification(w http.ResponseWriter, r *http.Request) {
+	var data struct {
+		TargetToken string `json:"targetToken"`
+		Title       string `json:"title"`
+		Body        string `json:"body"`
+	}
+
+	// 1. Request body se JSON parse karein
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	ctx := context.Background()
+	// Path check kar lena ki serviceAccountKey.json sahi jagah hai
+	opt := option.WithServiceAccountFile("serviceAccountKey.json")
+	app, err := firebase.NewApp(ctx, nil, opt)
+	if err != nil {
+		log.Printf("error initializing app: %v", err)
+		http.Error(w, "Firebase init failed", http.StatusInternalServerError)
+		return
+	}
+
+	client, err := app.Messaging(ctx)
+	if err != nil {
+		log.Printf("error getting Messaging client: %v", err)
+		return
+	}
+
+	// 2. Message structure taiyar karein
+	msg := &messaging.Message{
+		Token: data.TargetToken,
+		Notification: &messaging.Notification{
+			Title: data.Title,
+			Body:  data.Body,
+		},
+	}
+
+	// 3. Firebase ko send karein
+	response, err := client.Send(ctx, msg)
+	if err != nil {
+		log.Printf("error sending message: %v", err)
+		w.Write([]byte("Error sending notification"))
+		return
+	}
+
+	fmt.Println("Successfully sent message:", response)
+	w.Write([]byte("Notification Sent Successfully!"))
+}
+
+func UpdateFCMToken(w http.ResponseWriter, r *http.Request) {
+	var data struct {
+		Username string `json:"username"`
+		FCMToken string `json:"fcmToken"`
+	}
+
+	// Check for decoding error
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		http.Error(w, "Invalid Body", 400)
+		return
+	}
+
+	// ✅ FIX: 'client' ki jagah seedha 'userCollection' use karein
+	// jo aapke handler.go mein pehle se global defined hai
+	filter := bson.M{"username": data.Username}
+	update := bson.M{"$set": bson.M{"fcmToken": data.FCMToken}}
+
+	_, err := userCollection.UpdateOne(context.TODO(), filter, update)
+	if err != nil {
+		log.Printf("DB Update Error: %v", err)
+		http.Error(w, "DB Update Failed", 500)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintln(w, "✅ FCM Token Updated")
+}
+
+func TriggerPushNotification(targetToken string, title string, body string, senderName string) {
+	ctx := context.Background()
+
+	// 🔍 1. Render ke environment variable ko check karo
+	serviceAccountJSON := os.Getenv("FIREBASE_SERVICE_ACCOUNT")
+
+	var opt option.ClientOption
+
+	if serviceAccountJSON != "" {
+		// ✅ Agar Render par hai: JSON string use karo
+		opt = option.WithCredentialsJSON([]byte(serviceAccountJSON))
+		log.Println("🚀 Firebase initialized using Environment Variable (Render)")
+	} else {
+		// 🏠 Agar Local hai: File use karo
+		opt = option.WithServiceAccountFile("serviceAccountKey.json")
+		log.Println("🏠 Firebase initialized using local JSON file")
+	}
+
+	app, err := firebase.NewApp(ctx, nil, opt)
+	if err != nil {
+		log.Printf("❌ Firebase Error: %v", err)
+		return
+	}
+
+	client, err := app.Messaging(ctx)
+	if err != nil {
+		log.Printf("❌ Messaging Error: %v", err)
+		return
+	}
+
+	// Baaki aapka messaging wala code bilkul same rahega...
+	msg := &messaging.Message{
+		Token: targetToken,
+		Notification: &messaging.Notification{
+			Title: title,
+			Body:  body,
+		},
+		Data: map[string]string{
+			"type":   "chat",
+			"sender": senderName,
+		},
+	}
+
+	_, err = client.Send(ctx, msg)
+	if err != nil {
+		log.Printf("❌ Send Error: %v", err)
+	} else {
+		log.Println("✅ Notification Sent!")
+	}
 }

@@ -12,4 +12,5 @@ type User struct {
 	Course       string    `bson:"course" json:"course"`   // ✨ EducationDetails se aayega
 	BlockedUsers []string  `bson:"blockedUsers" json:"blockedUsers"`
 	MutedUsers   []string  `bson:"mutedUsers" json:"mutedUsers"`
+	FCMToken     string    `bson:"fcmToken" json:"fcmToken"`
 }

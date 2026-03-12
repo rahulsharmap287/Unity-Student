@@ -12,6 +12,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -92,45 +93,6 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 		log.Printf("❌ User Offline: %s", username)
 	}()
 
-	//for {
-	//	_, msg, err := conn.ReadMessage()
-	//	if err != nil {
-	//		break
-	//	}
-	//
-	//	var message models.Message
-	//	if err := json.Unmarshal(msg, &message); err != nil {
-	//		continue
-	//	}
-	//
-	//	message.From = username
-	//	message.CreatedAt = time.Now()
-	//
-	//	// ✅ MongoDB mein ab ReplyToID aur ReplyText bhi save hoga
-	//	res, _ := messageCollection.InsertOne(context.TODO(), message)
-	//
-	//	// MongoDB ki InsertedID ko message mein wapas daalo taaki samne wala ise delete kar sake
-	//	msgID := res.InsertedID.(primitive.ObjectID).Hex()
-	//
-	//	mu.Lock()
-	//	receiverConn, found := clients[message.To]
-	//	mu.Unlock()
-	//
-	//	if found {
-	//		msgMap := map[string]interface{}{
-	//			"type":      "chat_message",
-	//			"messageId": msgID, // 👈 Message ID bhej rahe hain
-	//			"from":      message.From,
-	//			"text":      message.Text,
-	//			"to":        message.To,
-	//			"replyToId": message.ReplyToID, // 👈 Nayi Field: Reply ID
-	//			"replyText": message.ReplyText, // 👈 Nayi Field: Reply Text
-	//		}
-	//		data, _ := json.Marshal(msgMap)
-	//		receiverConn.WriteMessage(websocket.TextMessage, data)
-	//	}
-	//}
-
 	for {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
@@ -181,6 +143,19 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 				}
 				data, _ := json.Marshal(msgMap)
 				receiverConn.WriteMessage(websocket.TextMessage, data)
+			} else {
+				// 🔴 Receiver Offline hai: Firebase Push Notification bhejo
+				go func(receiverName string, senderName string, msgText string) {
+					var receiver models.User
+					// Database se receiver ka FCM Token nikalen
+					err := userCollection.FindOne(context.TODO(), bson.M{"username": receiverName}).Decode(&receiver)
+
+					if err == nil && receiver.FCMToken != "" {
+						title := fmt.Sprintf("New message from %s", senderName)
+						// Aapka helper function call karein
+						TriggerPushNotification(receiver.FCMToken, title, msgText, message.From)
+					}
+				}(message.To, message.From, message.Text)
 			}
 		}
 	}
