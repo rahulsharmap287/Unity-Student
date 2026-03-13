@@ -322,6 +322,9 @@ func GetAcceptedFriendsHandler(w http.ResponseWriter, r *http.Request) {
 			friend = req.Sender
 		}
 
+		var friendProfile models.User
+		userCollection.FindOne(context.TODO(), bson.M{"username": friend}).Decode(&friendProfile)
+
 		// 🕵️ Sabse aakhri message nikalne ke liye (Sorting ke liye)
 		var lastMsg models.Message
 		msgFilter := bson.M{
@@ -365,6 +368,7 @@ func GetAcceptedFriendsHandler(w http.ResponseWriter, r *http.Request) {
 
 		friendsData = append(friendsData, map[string]interface{}{
 			"username":    friend,
+			"profilePic":  friendProfile.ProfilePic, // ✅ AB DP JAYEGI!
 			"lastMessage": lastMsg.Text,
 			"time":        lastMsg.CreatedAt, // Isse Flutter sort karega
 			"unreadCount": unreadCount,       // Isse green dot dikhega
@@ -376,9 +380,13 @@ func GetAcceptedFriendsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // 1. Messages ko 'Read' mark karne ke liye
+// 1. Messages ko 'Read' mark karne ke liye
 func MarkAsReadHandler(w http.ResponseWriter, r *http.Request) {
 	var data map[string]string
-	json.NewDecoder(r.Body).Decode(&data)
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		http.Error(w, "Invalid request", 400)
+		return
+	}
 
 	myUsername := data["myUsername"]
 	friendUsername := data["friendUsername"]
@@ -389,12 +397,26 @@ func MarkAsReadHandler(w http.ResponseWriter, r *http.Request) {
 
 	_, err := messageCollection.UpdateMany(context.TODO(), filter, update)
 	if err != nil {
+		log.Printf("❌ MarkAsRead Error: %v", err)
 		http.Error(w, "Failed to update", 500)
 		return
 	}
 
-	// 🔔 Notify the user via WebSocket to refresh the chat list (Optional but good)
+	// ✅ NEW: WebSocket se Friend ko notify karein ki messages seen ho gaye hain
+	mu.Lock()
+	friendConn, found := clients[friendUsername]
+	mu.Unlock()
+
+	if found {
+		msg, _ := json.Marshal(map[string]interface{}{
+			"type":   "messages_seen",
+			"byUser": myUsername,
+		})
+		_ = friendConn.WriteMessage(websocket.TextMessage, msg)
+	}
+
 	w.WriteHeader(http.StatusOK)
+	fmt.Fprintln(w, "✅ Messages marked as read")
 }
 
 //  Function for Blocked user
@@ -871,13 +893,20 @@ func TriggerPushNotification(targetToken string, title string, body string, send
 		return
 	}
 
-	// Baaki aapka messaging wala code bilkul same rahega...
+	// ✅ Fixed Logic: Red lines hatane ke liye is structure ko use karein
 	msg := &messaging.Message{
 		Token: targetToken,
 		Notification: &messaging.Notification{
 			Title: title,
 			Body:  body,
 		},
+		// Android Sound
+		Android: &messaging.AndroidConfig{
+			Notification: &messaging.AndroidNotification{
+				Sound: "default",
+			},
+		},
+
 		Data: map[string]string{
 			"type":   "chat",
 			"sender": senderName,
@@ -888,6 +917,6 @@ func TriggerPushNotification(targetToken string, title string, body string, send
 	if err != nil {
 		log.Printf("❌ Send Error: %v", err)
 	} else {
-		log.Println("✅ Notification Sent!")
+		log.Println("✅ Notification Sent with Sound!")
 	}
 }
